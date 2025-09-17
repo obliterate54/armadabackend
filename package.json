@@ -23,7 +23,6 @@
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.19.0",
     "mongoose": "^8.18.1",
-    "pino-http": "^10.5.0",
     "zod": "^4.1.9"
   },
   "devDependencies": {

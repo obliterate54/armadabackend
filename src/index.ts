@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import pinoHttp from 'pino-http';
+// import pinoHttp from 'pino-http';
 import rateLimit from 'express-rate-limit';
 import { connectMongo } from './config/mongo.js';
 import { errorHandler } from './middleware/errors.js';
@@ -26,7 +26,7 @@ app.use(helmet());
 app.use(compression());
 app.use(express.json());
 // import pinoHttp from 'pino-http'; // Remove this line
-app.use(pinoHttp()); // Use the pino-http middleware
+// app.use(pinoHttp()); // Use the pino-http middleware
 app.use(rateLimit({ windowMs: 60_000, max: 120 }));
 
 app.get('/healthz', (_req,res)=>res.send('ok'));
