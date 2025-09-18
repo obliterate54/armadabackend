@@ -3,7 +3,6 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-// import pinoHttp from 'pino-http';
 import rateLimit from 'express-rate-limit';
 import { connectMongo } from './config/mongo.js';
 import { errorHandler } from './middleware/errors.js';
@@ -12,6 +11,7 @@ import me from './routes/me.js';
 import threads from './routes/threads.js';
 import friends from './routes/friends.js';
 import devices from './routes/devicetokens.js';
+import users from './routes/users.js';
 
 const app = express();
 
@@ -25,22 +25,25 @@ app.use(cors({
 app.use(helmet());
 app.use(compression());
 app.use(express.json());
-// import pinoHttp from 'pino-http'; // Remove this line
-// app.use(pinoHttp()); // Use the pino-http middleware
+if (process.env.ENABLE_PINO_HTTP === 'true') {
+  // Lazy import to avoid dependency issues if optional
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const pinoHttp = require('pino-http');
+  app.use(pinoHttp());
+}
 app.use(rateLimit({ windowMs: 60_000, max: 120 }));
 
-app.get('/healthz', (_req,res)=>res.send('ok'));
+app.get('/healthz', (_req,res)=>res.status(200).json({ status: 'ok' }));
 
 app.use(me);
 app.use(threads);
 app.use(friends);
 app.use(devices);
+app.use(users);
 
 app.use(errorHandler);
 
-const port = Number(process.env.PORT || 8080);
-
-const PORT = process.env.PORT || 8080;
+const PORT = Number(process.env.PORT || 8080);
 
 // make sure Mongo connects before starting
 connectMongo(process.env.MONGO_URI || '')
@@ -60,4 +63,31 @@ connectMongo(process.env.MONGO_URI || '')
 
 // error handling middleware should go after routes
 app.use(errorHandler);
+
+// Minimal OpenAPI description
+app.get('/openapi.json', (_req, res) => {
+  res.json({
+    openapi: '3.0.0',
+    info: { title: 'Convoy API', version: '1.0.0' },
+    paths: {
+      '/healthz': { get: { responses: { '200': { description: 'ok' } } } },
+      '/me': {
+        get: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'me' } } },
+        post: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'updated' }, '409': { description: 'username taken' } } }
+      },
+      '/users/by-username/{username}': {
+        get: { security: [{ bearerAuth: [] }], parameters: [{ name: 'username', in: 'path', required: true }], responses: { '200': { description: 'resolved' }, '404': { description: 'not found' } } }
+      },
+      '/friends/requests': { get: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'list' } } } },
+      '/friends/request': { post: { security: [{ bearerAuth: [] }], responses: { '201': { description: 'created' }, '404': { description: 'not found' }, '409': { description: 'duplicate' } } } },
+      '/friends/respond': { post: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'ok' } } } },
+      '/threads': {
+        get: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'list' } } },
+        post: { security: [{ bearerAuth: [] }], responses: { '201': { description: 'created' } } }
+      },
+      '/threads/{id}': { delete: { security: [{ bearerAuth: [] }], parameters: [{ name: 'id', in: 'path', required: true }], responses: { '200': { description: 'deleted' }, '403': { description: 'forbidden' }, '404': { description: 'not found' } } } }
+    },
+    components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } } }
+  });
+});
 

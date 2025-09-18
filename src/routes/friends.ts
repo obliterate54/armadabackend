@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { FriendRequest } from '../models/FriendRequest.js';
 import { requireAuth } from '../middleware/auth.js';
+import { User } from '../models/User.js';
 
 const r = Router();
 
@@ -15,9 +16,27 @@ r.get('/friends/requests', requireAuth, async (req, res) => {
 r.post('/friends/request', requireAuth, async (req, res) => {
   const from = (req as any).uid as string;
   const body = z.object({ to: z.string().min(1) }).parse(req.body);
-  if (body.to === from) return res.status(400).json({ error: 'CannotFriendSelf' });
+
+  // Resolve recipient: direct uid match or username (case-insensitive)
+  let toUid = body.to.trim();
+  if (!/^[-_A-Za-z0-9]{6,}$/.test(toUid)) {
+    const target = await User.findOne({ username: new RegExp(`^${toUid}$`, 'i') });
+    if (!target) return res.status(404).json({ error: 'UserNotFound' });
+    toUid = target.uid;
+  } else {
+    const asUid = await User.findOne({ uid: toUid });
+    if (!asUid) {
+      // If not a known uid, try as username
+      const target = await User.findOne({ username: new RegExp(`^${toUid}$`, 'i') });
+      if (!target) return res.status(404).json({ error: 'UserNotFound' });
+      toUid = target.uid;
+    }
+  }
+
+  if (toUid === from) return res.status(400).json({ error: 'CannotFriendSelf' });
+
   try {
-    const fr = await FriendRequest.create({ from, to: body.to, status: 'pending' });
+    const fr = await FriendRequest.create({ from, to: toUid, status: 'pending' });
     res.status(201).json(fr);
   } catch (e: any) {
     if (e.code === 11000) return res.status(409).json({ error: 'AlreadyRequested' });

@@ -8,6 +8,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!token) return res.status(401).json({ error: 'Missing token' });
     const decoded = await admin.auth().verifyIdToken(token);
     (req as any).uid = decoded.uid;
+    (req as any).auth = decoded;
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });

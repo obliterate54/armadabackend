@@ -1,0 +1,90 @@
+{
+  "info": {
+    "name": "Convoy API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Healthz",
+      "request": { "method": "GET", "url": "{{baseUrl}}/healthz" }
+    },
+    {
+      "name": "Me - GET",
+      "request": { "method": "GET", "header": [{"key":"Authorization","value":"Bearer {{idToken}}"}], "url": "{{baseUrl}}/me" }
+    },
+    {
+      "name": "Me - POST Update",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key":"Authorization","value":"Bearer {{idToken}}"},
+          {"key":"Content-Type","value":"application/json"}
+        ],
+        "body": {"mode":"raw","raw":"{\n  \"displayName\": \"Tester\",\n  \"username\": \"tester\",\n  \"photoURL\": \"https://example.com/p.png\"\n}"},
+        "url": "{{baseUrl}}/me"
+      }
+    },
+    {
+      "name": "Users - by username",
+      "request": { "method": "GET", "header": [{"key":"Authorization","value":"Bearer {{idToken}}"}], "url": "{{baseUrl}}/users/by-username/{{username}}" }
+    },
+    {
+      "name": "Friends - list requests",
+      "request": { "method": "GET", "header": [{"key":"Authorization","value":"Bearer {{idToken}}"}], "url": "{{baseUrl}}/friends/requests" }
+    },
+    {
+      "name": "Friends - request",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key":"Authorization","value":"Bearer {{idToken}}"},
+          {"key":"Content-Type","value":"application/json"}
+        ],
+        "body": {"mode":"raw","raw":"{\n  \"to\": \"{{to}}\"\n}"},
+        "url": "{{baseUrl}}/friends/request"
+      }
+    },
+    {
+      "name": "Friends - respond",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key":"Authorization","value":"Bearer {{idToken}}"},
+          {"key":"Content-Type","value":"application/json"}
+        ],
+        "body": {"mode":"raw","raw":"{\n  \"id\": \"{{requestId}}\",\n  \"action\": \"accept\"\n}"},
+        "url": "{{baseUrl}}/friends/respond"
+      }
+    },
+    {
+      "name": "Threads - list",
+      "request": { "method": "GET", "header": [{"key":"Authorization","value":"Bearer {{idToken}}"}], "url": "{{baseUrl}}/threads?limit=20" }
+    },
+    {
+      "name": "Threads - create",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key":"Authorization","value":"Bearer {{idToken}}"},
+          {"key":"Content-Type","value":"application/json"}
+        ],
+        "body": {"mode":"raw","raw":"{\n  \"text\": \"hello world\"\n}"},
+        "url": "{{baseUrl}}/threads"
+      }
+    },
+    {
+      "name": "Threads - delete",
+      "request": { "method": "DELETE", "header": [{"key":"Authorization","value":"Bearer {{idToken}}"}], "url": "{{baseUrl}}/threads/{{threadId}}" }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "idToken", "value": "" },
+    { "key": "username", "value": "mohamed" },
+    { "key": "to", "value": "" },
+    { "key": "requestId", "value": "" },
+    { "key": "threadId", "value": "" }
+  ]
+}
+
+
