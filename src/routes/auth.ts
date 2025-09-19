@@ -38,13 +38,13 @@ r.post('/auth/register', async (req, res) => {
     // Generate username if not provided
     let finalUsername = username;
     if (!finalUsername) {
-      const local = email.split('@')[0].replace(/[^a-z0-9_]/gi, '').slice(0, 20);
+      const local = email.split('@')[0]?.replace(/[^a-z0-9_]/gi, '').slice(0, 20) || '';
       finalUsername = local || `user_${Date.now().toString(36)}`;
       
       // Ensure username is unique
       let counter = 0;
       while (await User.findOne({ username: new RegExp(`^${finalUsername}$`, 'i') })) {
-        finalUsername = `${local}${counter}`;
+        finalUsername = `${local || 'user'}${counter}`;
         counter++;
       }
     }
@@ -82,7 +82,7 @@ r.post('/auth/register', async (req, res) => {
   } catch (error) {
     console.error('Registration error:', error);
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'InvalidInput', details: error.errors });
+      return res.status(400).json({ error: 'InvalidInput', details: error.issues });
     }
     res.status(500).json({ error: 'InternalServerError' });
   }
@@ -129,7 +129,7 @@ r.post('/auth/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'InvalidInput', details: error.errors });
+      return res.status(400).json({ error: 'InvalidInput', details: error.issues });
     }
     res.status(500).json({ error: 'InternalServerError' });
   }

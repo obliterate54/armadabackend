@@ -69,7 +69,7 @@ r.post('/me', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error in POST /me:', error);
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'InvalidInput', details: error.errors });
+      return res.status(400).json({ error: 'InvalidInput', details: error.issues });
     }
     res.status(500).json({ error: 'InternalServerError' });
   }
