@@ -9,7 +9,7 @@ r.get('/users/by-username/:username', requireAuth, async (req, res) => {
   const { username } = z.object({ username: z.string().min(1).max(32) }).parse(req.params);
   const user = await User.findOne({ username: new RegExp(`^${username}$`, 'i') }).lean();
   if (!user) return res.status(404).json({ error: 'UserNotFound' });
-  res.json({ uid: user.uid, displayName: user.displayName, username: user.username, photoURL: user.photoURL ?? null });
+  res.json({ uid: user._id.toString(), displayName: user.displayName, username: user.username, photoURL: user.photoURL ?? null });
 });
 
 export default r;

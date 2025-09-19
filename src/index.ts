@@ -12,6 +12,7 @@ import threads from './routes/threads.js';
 import friends from './routes/friends.js';
 import devices from './routes/devicetokens.js';
 import users from './routes/users.js';
+import auth from './routes/auth.js';
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use(rateLimit({ windowMs: 60_000, max: 120 }));
 
 app.get('/healthz', (_req,res)=>res.status(200).json({ status: 'ok' }));
 
+app.use(auth);
 app.use(me);
 app.use(threads);
 app.use(friends);
@@ -71,6 +73,9 @@ app.get('/openapi.json', (_req, res) => {
     info: { title: 'Convoy API', version: '1.0.0' },
     paths: {
       '/healthz': { get: { responses: { '200': { description: 'ok' } } } },
+      '/auth/register': { post: { responses: { '201': { description: 'created' }, '409': { description: 'email/username taken' } } } },
+      '/auth/login': { post: { responses: { '200': { description: 'success' }, '401': { description: 'invalid credentials' } } } },
+      '/auth/me': { get: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'user' } } } },
       '/me': {
         get: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'me' } } },
         post: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'updated' }, '409': { description: 'username taken' } } }

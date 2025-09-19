@@ -1,11 +1,14 @@
 import { Schema, model } from 'mongoose';
 
 const UserSchema = new Schema({
-  uid: { type: String, unique: true, index: true, required: true },
+  email: { type: String, required: true, unique: true },
+  passwordHash: { type: String, required: true },
   username: { type: String, unique: true, sparse: true },
-  email: { type: String },
   displayName: { type: String },
   photoURL: { type: String },
 }, { timestamps: true });
+
+UserSchema.index({ email: 1 });
+UserSchema.index({ username: 1 });
 
 export const User = model('User', UserSchema);
