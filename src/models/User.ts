@@ -1,8 +1,8 @@
-import { Schema, model, Types } from 'mongoose';
+import mongoose, { Schema, Model, Document, Types } from 'mongoose';
+import type { QueryWithHelpers } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 export interface IUser {
-  _id: Types.ObjectId;
   email: string;
   username: string;
   passwordHash: string;
@@ -36,9 +36,29 @@ export interface IUser {
     totalMiles: number;
     friendsCount: number;
   };
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt?: Date;
+  deletedAt?: Date | null;
+}
+
+export interface IUserDoc extends Document, IUser {
+  _id: Types.ObjectId;
+  comparePassword(candidatePassword: string): Promise<boolean>;
+  updateLastSeen(): Promise<void>;
+  addFriend(friendId: Types.ObjectId): Promise<void>;
+  removeFriend(friendId: Types.ObjectId): Promise<void>;
+  blockUser(userId: Types.ObjectId): Promise<void>;
+  unblockUser(userId: Types.ObjectId): Promise<void>;
+  updateLocation(lat: number, lng: number, heading?: number, speed?: number): Promise<void>;
+}
+
+export interface IUserQueryHelpers {
+  notDeleted(this: QueryWithHelpers<any, IUserDoc, IUserQueryHelpers>): any;
+}
+
+export interface IUserModel extends Model<IUserDoc, IUserQueryHelpers> {
+  findByEmail(email: string): Promise<IUserDoc | null>;
+  findByUsername(username: string): Promise<IUserDoc | null>;
+  searchUsers(query: string, excludeIds?: Types.ObjectId[], limit?: number): Promise<IUserDoc[]>;
+  hashPassword(password: string): Promise<string>;
 }
 
 const LocationSchema = new Schema({
@@ -80,7 +100,7 @@ const StatsSchema = new Schema({
   friendsCount: { type: Number, default: 0 }
 }, { _id: false });
 
-const UserSchema = new Schema<IUser>({
+const UserSchema = new Schema<IUserDoc, IUserModel, IUserDoc, IUserQueryHelpers>({
   email: { 
     type: String, 
     required: true, 
@@ -97,7 +117,7 @@ const UserSchema = new Schema<IUser>({
     trim: true,
     minlength: 3,
     maxlength: 30,
-    index: { collation: { locale: 'en', strength: 2 } } // Case-insensitive
+    index: { collation: { locale: 'en', strength: 2 } }
   },
   passwordHash: { type: String, required: true },
   avatarUrl: { type: String },
@@ -109,26 +129,23 @@ const UserSchema = new Schema<IUser>({
   location: { type: LocationSchema },
   deviceTokens: [{ type: String }],
   stats: { type: StatsSchema, default: () => ({}) },
-  deletedAt: { type: Date }
+  deletedAt: { type: Date, default: null }
 }, {
   timestamps: true,
   toJSON: {
-    transform: function(doc, ret) {
-      delete ret.passwordHash;
-      delete ret.deviceTokens;
+    transform: function(_doc, ret: any) {
+      if ('passwordHash' in ret) delete ret.passwordHash;
+      if ('deviceTokens' in ret) delete ret.deviceTokens;
       return ret;
     }
   }
 });
 
 // Indexes for performance
-UserSchema.index({ email: 1 });
-UserSchema.index({ username: 1 });
 UserSchema.index({ 'location.updatedAt': -1 });
 UserSchema.index({ lastSeenAt: -1 });
-UserSchema.index({ deletedAt: 1 });
 
-// Soft delete query helpers
+// Query helpers
 UserSchema.query.notDeleted = function() {
   return this.where({ deletedAt: null });
 };
@@ -138,48 +155,46 @@ UserSchema.methods.comparePassword = async function(candidatePassword: string): 
   return bcrypt.compare(candidatePassword, this.passwordHash);
 };
 
-UserSchema.methods.updateLastSeen = function() {
+UserSchema.methods.updateLastSeen = async function() {
   this.lastSeenAt = new Date();
-  return this.save();
+  await this.save();
 };
 
-UserSchema.methods.addFriend = function(friendId: Types.ObjectId) {
+UserSchema.methods.addFriend = async function(friendId: Types.ObjectId) {
   if (!this.friends.includes(friendId)) {
     this.friends.push(friendId);
     this.stats.friendsCount = this.friends.length;
   }
-  return this.save();
+  await this.save();
 };
 
-UserSchema.methods.removeFriend = function(friendId: Types.ObjectId) {
-  this.friends = this.friends.filter(id => !id.equals(friendId));
+UserSchema.methods.removeFriend = async function(friendId: Types.ObjectId) {
+  this.friends = this.friends.filter((id: Types.ObjectId) => !id.equals(friendId));
   this.stats.friendsCount = this.friends.length;
-  return this.save();
+  await this.save();
 };
 
-UserSchema.methods.blockUser = function(userId: Types.ObjectId) {
+UserSchema.methods.blockUser = async function(userId: Types.ObjectId) {
   if (!this.blocked.includes(userId)) {
     this.blocked.push(userId);
   }
-  // Remove from friends if they were friends
-  this.removeFriend(userId);
-  return this.save();
+  await this.removeFriend(userId);
 };
 
-UserSchema.methods.unblockUser = function(userId: Types.ObjectId) {
-  this.blocked = this.blocked.filter(id => !id.equals(userId));
-  return this.save();
+UserSchema.methods.unblockUser = async function(userId: Types.ObjectId) {
+  this.blocked = this.blocked.filter((id: Types.ObjectId) => !id.equals(userId));
+  await this.save();
 };
 
-UserSchema.methods.updateLocation = function(lat: number, lng: number, heading?: number, speed?: number) {
+UserSchema.methods.updateLocation = async function(lat: number, lng: number, heading?: number, speed?: number) {
   this.location = {
     lat,
     lng,
-    heading,
-    speed,
-    updatedAt: new Date()
+    updatedAt: new Date(),
+    ...(heading != null ? { heading } : {}),
+    ...(speed != null ? { speed } : {})
   };
-  return this.save();
+  await this.save();
 };
 
 // Static methods
@@ -215,4 +230,4 @@ UserSchema.statics.searchUsers = function(query: string, excludeIds: Types.Objec
   .lean();
 };
 
-export const User = model<IUser>('User', UserSchema);
+export const User = (mongoose.models.User as IUserModel) || mongoose.model<IUserDoc, IUserModel>('User', UserSchema);

@@ -269,6 +269,14 @@ router.post('/:id/join', requireAuth, async (req: AuthenticatedRequest, res) => 
     let convoy;
     
     if (joinCode) {
+      if (!joinCode.trim()) {
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_JOIN_CODE',
+            message: 'Join code is required'
+          }
+        });
+      }
       convoy = await Convoy.findByJoinCode(joinCode);
       if (!convoy) {
         return res.status(404).json({
@@ -607,6 +615,15 @@ router.get('/join/:joinCode', requireAuth, async (req: AuthenticatedRequest, res
     }
 
     const { joinCode } = req.params;
+
+    if (!joinCode || !joinCode.trim()) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_JOIN_CODE',
+          message: 'Join code is required'
+        }
+      });
+    }
 
     const convoy = await Convoy.findByJoinCode(joinCode);
     if (!convoy) {

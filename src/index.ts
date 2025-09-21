@@ -87,7 +87,7 @@ const presenceNamespace = io.of('/presence');
 const chatNamespace = io.of('/chat');
 
 // Socket.IO middleware for authentication
-const socketAuthMiddleware = async (socket, next) => {
+const socketAuthMiddleware = async (socket: any, next: any) => {
   try {
     const token = socket.handshake.auth.token;
     if (!token) {
@@ -114,7 +114,7 @@ presenceNamespace.on('connection', (socket) => {
   socket.on('location:update', (data) => {
     // Broadcast location to convoy members
     socket.broadcast.emit('location:update', {
-      userId: socket.userId,
+      userId: (socket as any).userId,
       ...data
     });
   });
@@ -146,7 +146,7 @@ chatNamespace.on('connection', (socket) => {
 
   socket.on('thread:typing', (data) => {
     socket.to(`thread:${data.threadId}`).emit('thread:typing', {
-      userId: socket.userId,
+      userId: (socket as any).userId,
       ...data
     });
   });

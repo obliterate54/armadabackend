@@ -114,8 +114,7 @@ router.post('/', requireAuth, async (req: AuthenticatedRequest, res) => {
 
     if (isGroup) {
       // Create group thread
-      thread = Thread.createGroupThread(participantIds, title);
-      await thread.save();
+      thread = await Thread.createGroupThread(participantIds, title);
     } else {
       // For DM, find existing or create new
       const otherParticipant = participantIds.find(id => !id.equals(userId));
@@ -249,7 +248,7 @@ router.get('/:id/messages', requireAuth, async (req: AuthenticatedRequest, res) 
         pagination: {
           limit: parsedLimit,
           hasMore: messages.length === parsedLimit,
-          nextCursor: messages.length > 0 ? messages[0]?.createdAt : undefined
+          nextCursor: messages.length > 0 ? messages[0]!.createdAt : undefined
         }
       }
     });
@@ -291,14 +290,12 @@ router.post('/:id/messages', requireAuth, async (req: AuthenticatedRequest, res)
     }
 
     // Create message
-    const message = new Message({
+    const message = await Message.create({
       threadId: new Types.ObjectId(id),
       senderId: userId,
       text: messageData.text,
       media: messageData.media
     });
-
-    await message.save();
 
     // Update thread last message and unread counts
     await thread.updateLastMessage();

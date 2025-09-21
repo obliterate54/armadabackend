@@ -146,19 +146,17 @@ router.post('/request', requireAuth, async (req: AuthenticatedRequest, res) => {
     }
 
     // Create friend request
-    const friendRequest = new FriendRequest({
+    const friendRequest = await FriendRequest.create({
       from: fromId,
       to: toId,
       status: 'pending'
     });
 
-    await friendRequest.save();
-
     // Create notification for recipient
     await Notification.createFriendRequest(
       toId,
       fromId.toString(),
-      currentUser.username
+      currentUser?.username || 'Unknown User'
     );
 
     res.status(201).json({

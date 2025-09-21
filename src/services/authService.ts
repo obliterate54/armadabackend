@@ -1,13 +1,11 @@
 import jwt from 'jsonwebtoken';
+import type { Secret, SignOptions, JwtPayload } from 'jsonwebtoken';
 import { Types } from 'mongoose';
 import { User } from '../models/User.js';
+import type { TokenPayload } from '../types/auth.js';
 
-export interface TokenPayload {
-  userId: string;
-  email: string;
-  username: string;
-  type: 'access' | 'refresh';
-}
+// Helper: grab the exact allowed type for expiresIn
+type JwtExpires = NonNullable<SignOptions['expiresIn']>;
 
 export interface AuthResult {
   user: {
@@ -24,18 +22,18 @@ export interface AuthResult {
 }
 
 class AuthService {
-  private accessSecret: string;
-  private refreshSecret: string;
-  private accessExpiry: string;
-  private refreshExpiry: string;
+  private accessSecret: Secret;
+  private refreshSecret: Secret;
+  private accessExpiry: JwtExpires;
+  private refreshExpiry: JwtExpires;
 
   constructor() {
-    this.accessSecret = process.env.JWT_ACCESS_SECRET || 'fallback-access-secret';
-    this.refreshSecret = process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret';
-    this.accessExpiry = process.env.JWT_ACCESS_EXPIRY || '15m';
-    this.refreshExpiry = process.env.JWT_REFRESH_EXPIRY || '7d';
+    this.accessSecret = process.env.JWT_ACCESS_SECRET || 'dev_access';
+    this.refreshSecret = process.env.JWT_REFRESH_SECRET || 'dev_refresh';
+    this.accessExpiry = (process.env.JWT_ACCESS_EXPIRES_IN as JwtExpires) ?? '15m';
+    this.refreshExpiry = (process.env.JWT_REFRESH_EXPIRES_IN as JwtExpires) ?? '7d';
 
-    if (this.accessSecret === 'fallback-access-secret' || this.refreshSecret === 'fallback-refresh-secret') {
+    if (this.accessSecret === 'dev_access' || this.refreshSecret === 'dev_refresh') {
       console.warn('⚠️  Using fallback JWT secrets! Set JWT_ACCESS_SECRET and JWT_REFRESH_SECRET in production.');
     }
   }
@@ -60,13 +58,11 @@ class AuthService {
     const passwordHash = await User.hashPassword(password);
 
     // Create user
-    const user = new User({
+    const user = await User.create({
       email: email.toLowerCase(),
       username: username.toLowerCase(),
       passwordHash
     });
-
-    await user.save();
 
     // Generate tokens
     const { accessToken, refreshToken } = this.generateTokens({
@@ -191,17 +187,15 @@ class AuthService {
     console.log(`Password reset requested for: ${email}`);
   }
 
-  private generateTokens(payload: Omit<TokenPayload, 'type'>): { accessToken: string; refreshToken: string } {
+  private generateTokens(payload: TokenPayload): { accessToken: string; refreshToken: string } {
     const accessPayload: TokenPayload = { ...payload, type: 'access' };
     const refreshPayload: TokenPayload = { ...payload, type: 'refresh' };
 
-    const accessToken = jwt.sign(accessPayload, this.accessSecret, {
-      expiresIn: this.accessExpiry
-    });
+    const accessOpts: SignOptions = { expiresIn: this.accessExpiry };
+    const refreshOpts: SignOptions = { expiresIn: this.refreshExpiry };
 
-    const refreshToken = jwt.sign(refreshPayload, this.refreshSecret, {
-      expiresIn: this.refreshExpiry
-    });
+    const accessToken = jwt.sign(accessPayload as JwtPayload, this.accessSecret, accessOpts);
+    const refreshToken = jwt.sign(refreshPayload as JwtPayload, this.refreshSecret, refreshOpts);
 
     return { accessToken, refreshToken };
   }

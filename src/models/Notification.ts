@@ -1,4 +1,5 @@
-import { Schema, model, Types } from 'mongoose';
+import mongoose, { Schema, Model, Document, Types } from 'mongoose';
+import type { QueryWithHelpers } from 'mongoose';
 
 export type NotificationType = 
   | 'friend_request'
@@ -41,13 +42,34 @@ export interface INotificationPayload {
 }
 
 export interface INotification {
-  _id: Types.ObjectId;
   userId: Types.ObjectId;
   type: NotificationType;
   payload: INotificationPayload;
-  readAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
+  readAt?: Date | null;
+}
+
+export interface INotificationDoc extends Document, INotification {
+  _id: Types.ObjectId;
+  markAsRead(): Promise<void>;
+  markAsUnread(): Promise<void>;
+}
+
+export interface INotificationQueryHelpers {
+  // Add any query helpers if needed
+}
+
+export interface INotificationModel extends Model<INotificationDoc, INotificationQueryHelpers> {
+  findUserNotifications(userId: Types.ObjectId, limit?: number, offset?: number): Promise<INotificationDoc[]>;
+  findUnreadNotifications(userId: Types.ObjectId): Promise<INotificationDoc[]>;
+  getUnreadCount(userId: Types.ObjectId): Promise<number>;
+  markAllAsRead(userId: Types.ObjectId): Promise<any>;
+  markMultipleAsRead(notificationIds: Types.ObjectId[], userId: Types.ObjectId): Promise<any>;
+  deleteOldNotifications(daysOld?: number): Promise<any>;
+  createFriendRequest(userId: Types.ObjectId, friendId: string, friendUsername: string): INotificationDoc;
+  createFriendAccepted(userId: Types.ObjectId, friendId: string, friendUsername: string): INotificationDoc;
+  createConvoyInvite(userId: Types.ObjectId, convoyId: string, convoyTitle: string, ownerId: string, ownerUsername: string): INotificationDoc;
+  createMessage(userId: Types.ObjectId, threadId: string, senderId: string, senderUsername: string, messagePreview: string): INotificationDoc;
+  createAchievement(userId: Types.ObjectId, achievementId: string, achievementTitle: string): INotificationDoc;
 }
 
 const NotificationPayloadSchema = new Schema<INotificationPayload>({
@@ -69,7 +91,7 @@ const NotificationPayloadSchema = new Schema<INotificationPayload>({
   metadata: { type: Schema.Types.Mixed }
 }, { _id: false });
 
-const NotificationSchema = new Schema<INotification>({
+const NotificationSchema = new Schema<INotificationDoc, INotificationModel, INotificationDoc, INotificationQueryHelpers>({
   userId: { 
     type: Schema.Types.ObjectId, 
     ref: 'User', 
@@ -103,14 +125,14 @@ NotificationSchema.index({ userId: 1, readAt: 1 });
 NotificationSchema.index({ type: 1, createdAt: -1 });
 
 // Instance methods
-NotificationSchema.methods.markAsRead = function() {
+NotificationSchema.methods.markAsRead = async function(): Promise<void> {
   this.readAt = new Date();
-  return this.save();
+  await this.save();
 };
 
-NotificationSchema.methods.markAsUnread = function() {
-  this.readAt = undefined;
-  return this.save();
+NotificationSchema.methods.markAsUnread = async function(): Promise<void> {
+  this.readAt = null;
+  await this.save();
 };
 
 // Static methods
@@ -118,7 +140,7 @@ NotificationSchema.statics.findUserNotifications = function(
   userId: Types.ObjectId, 
   limit = 50, 
   offset = 0
-) {
+): Promise<INotificationDoc[]> {
   return this.find({ userId })
     .sort({ createdAt: -1 })
     .skip(offset)
@@ -126,31 +148,34 @@ NotificationSchema.statics.findUserNotifications = function(
     .lean();
 };
 
-NotificationSchema.statics.findUnreadNotifications = function(userId: Types.ObjectId) {
+NotificationSchema.statics.findUnreadNotifications = function(userId: Types.ObjectId): Promise<INotificationDoc[]> {
   return this.find({ userId, readAt: null })
     .sort({ createdAt: -1 })
     .lean();
 };
 
-NotificationSchema.statics.getUnreadCount = function(userId: Types.ObjectId) {
+NotificationSchema.statics.getUnreadCount = function(userId: Types.ObjectId): Promise<number> {
   return this.countDocuments({ userId, readAt: null });
 };
 
-NotificationSchema.statics.markAllAsRead = function(userId: Types.ObjectId) {
+NotificationSchema.statics.markAllAsRead = function(userId: Types.ObjectId): Promise<any> {
   return this.updateMany(
     { userId, readAt: null },
     { readAt: new Date() }
   );
 };
 
-NotificationSchema.statics.markMultipleAsRead = function(notificationIds: Types.ObjectId[], userId: Types.ObjectId) {
+NotificationSchema.statics.markMultipleAsRead = function(
+  notificationIds: Types.ObjectId[], 
+  userId: Types.ObjectId
+): Promise<any> {
   return this.updateMany(
     { _id: { $in: notificationIds }, userId },
     { readAt: new Date() }
   );
 };
 
-NotificationSchema.statics.deleteOldNotifications = function(daysOld = 30) {
+NotificationSchema.statics.deleteOldNotifications = function(daysOld = 30): Promise<any> {
   const cutoffDate = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
   return this.deleteMany({
     createdAt: { $lt: cutoffDate }
@@ -162,7 +187,7 @@ NotificationSchema.statics.createFriendRequest = function(
   userId: Types.ObjectId, 
   friendId: string, 
   friendUsername: string
-) {
+): INotificationDoc {
   return new this({
     userId,
     type: 'friend_request',
@@ -179,7 +204,7 @@ NotificationSchema.statics.createFriendAccepted = function(
   userId: Types.ObjectId, 
   friendId: string, 
   friendUsername: string
-) {
+): INotificationDoc {
   return new this({
     userId,
     type: 'friend_accepted',
@@ -198,7 +223,7 @@ NotificationSchema.statics.createConvoyInvite = function(
   convoyTitle: string,
   ownerId: string,
   ownerUsername: string
-) {
+): INotificationDoc {
   return new this({
     userId,
     type: 'convoy_invite',
@@ -219,7 +244,7 @@ NotificationSchema.statics.createMessage = function(
   senderId: string,
   senderUsername: string,
   messagePreview: string
-) {
+): INotificationDoc {
   return new this({
     userId,
     type: 'message',
@@ -238,7 +263,7 @@ NotificationSchema.statics.createAchievement = function(
   userId: Types.ObjectId,
   achievementId: string,
   achievementTitle: string
-) {
+): INotificationDoc {
   return new this({
     userId,
     type: 'achievement',
@@ -251,4 +276,4 @@ NotificationSchema.statics.createAchievement = function(
   });
 };
 
-export const Notification = model<INotification>('Notification', NotificationSchema);
+export const Notification = (mongoose.models.Notification as INotificationModel) || mongoose.model<INotificationDoc, INotificationModel>('Notification', NotificationSchema);

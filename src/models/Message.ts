@@ -1,4 +1,5 @@
-import { Schema, model, Types } from 'mongoose';
+import mongoose, { Schema, Model, Document, Types } from 'mongoose';
+import type { QueryWithHelpers } from 'mongoose';
 
 export interface IMessageMedia {
   url: string;
@@ -17,16 +18,35 @@ export interface IMessageReaction {
 }
 
 export interface IMessage {
-  _id: Types.ObjectId;
   threadId: Types.ObjectId;
   senderId: Types.ObjectId;
   text?: string;
   media?: IMessageMedia;
   reactions: IMessageReaction[];
   editedAt?: Date;
-  deletedAt?: Date;
+  deletedAt?: Date | null;
+}
+
+export interface IMessageDoc extends Document, IMessage {
+  _id: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
+  edit(newText: string): Promise<void>;
+  softDelete(): Promise<void>;
+  addReaction(userId: Types.ObjectId, emoji: string): Promise<void>;
+  removeReaction(userId: Types.ObjectId): Promise<void>;
+  getReactionCount(emoji: string): number;
+  hasUserReacted(userId: Types.ObjectId, emoji?: string): boolean;
+}
+
+export interface IMessageQueryHelpers {
+  notDeleted(this: QueryWithHelpers<any, IMessageDoc, IMessageQueryHelpers>): any;
+}
+
+export interface IMessageModel extends Model<IMessageDoc, IMessageQueryHelpers> {
+  findByThread(threadId: Types.ObjectId, cursor?: Date, limit?: number): Promise<IMessageDoc[]>;
+  findRecentMessages(threadIds: Types.ObjectId[], limit?: number): Promise<IMessageDoc[]>;
+  getUnreadCount(threadId: Types.ObjectId, userId: Types.ObjectId): Promise<number>;
 }
 
 const MessageMediaSchema = new Schema<IMessageMedia>({
@@ -45,7 +65,7 @@ const MessageReactionSchema = new Schema<IMessageReaction>({
   createdAt: { type: Date, default: Date.now }
 }, { _id: false });
 
-const MessageSchema = new Schema<IMessage>({
+const MessageSchema = new Schema<IMessageDoc, IMessageModel, IMessageDoc, IMessageQueryHelpers>({
   threadId: { 
     type: Schema.Types.ObjectId, 
     ref: 'Thread', 
@@ -62,7 +82,7 @@ const MessageSchema = new Schema<IMessage>({
   media: { type: MessageMediaSchema },
   reactions: [MessageReactionSchema],
   editedAt: { type: Date },
-  deletedAt: { type: Date }
+  deletedAt: { type: Date, default: null }
 }, {
   timestamps: true
 });
@@ -76,26 +96,26 @@ MessageSchema.index({ createdAt: -1 });
 // Compound index for efficient thread message queries
 MessageSchema.index({ threadId: 1, deletedAt: 1, createdAt: -1 });
 
-// Soft delete query helpers
+// Query helpers
 MessageSchema.query.notDeleted = function() {
   return this.where({ deletedAt: null });
 };
 
 // Instance methods
-MessageSchema.methods.edit = function(newText: string) {
+MessageSchema.methods.edit = async function(newText: string): Promise<void> {
   this.text = newText;
   this.editedAt = new Date();
-  return this.save();
+  await this.save();
 };
 
-MessageSchema.methods.softDelete = function() {
+MessageSchema.methods.softDelete = async function(): Promise<void> {
   this.deletedAt = new Date();
-  return this.save();
+  await this.save();
 };
 
-MessageSchema.methods.addReaction = function(userId: Types.ObjectId, emoji: string) {
+MessageSchema.methods.addReaction = async function(userId: Types.ObjectId, emoji: string): Promise<void> {
   // Remove existing reaction from this user
-  this.reactions = this.reactions.filter(r => !r.by.equals(userId));
+  this.reactions = this.reactions.filter((r: IMessageReaction) => !r.by.equals(userId));
   
   // Add new reaction
   this.reactions.push({
@@ -104,23 +124,23 @@ MessageSchema.methods.addReaction = function(userId: Types.ObjectId, emoji: stri
     createdAt: new Date()
   });
   
-  return this.save();
+  await this.save();
 };
 
-MessageSchema.methods.removeReaction = function(userId: Types.ObjectId) {
-  this.reactions = this.reactions.filter(r => !r.by.equals(userId));
-  return this.save();
+MessageSchema.methods.removeReaction = async function(userId: Types.ObjectId): Promise<void> {
+  this.reactions = this.reactions.filter((r: IMessageReaction) => !r.by.equals(userId));
+  await this.save();
 };
 
 MessageSchema.methods.getReactionCount = function(emoji: string): number {
-  return this.reactions.filter(r => r.emoji === emoji).length;
+  return this.reactions.filter((r: IMessageReaction) => r.emoji === emoji).length;
 };
 
 MessageSchema.methods.hasUserReacted = function(userId: Types.ObjectId, emoji?: string): boolean {
   if (emoji) {
-    return this.reactions.some(r => r.by.equals(userId) && r.emoji === emoji);
+    return this.reactions.some((r: IMessageReaction) => r.by.equals(userId) && r.emoji === emoji);
   }
-  return this.reactions.some(r => r.by.equals(userId));
+  return this.reactions.some((r: IMessageReaction) => r.by.equals(userId));
 };
 
 // Static methods
@@ -128,7 +148,7 @@ MessageSchema.statics.findByThread = function(
   threadId: Types.ObjectId, 
   cursor?: Date, 
   limit = 50
-) {
+): Promise<IMessageDoc[]> {
   const query: any = { 
     threadId, 
     deletedAt: null 
@@ -148,7 +168,7 @@ MessageSchema.statics.findByThread = function(
 MessageSchema.statics.findRecentMessages = function(
   threadIds: Types.ObjectId[], 
   limit = 20
-) {
+): Promise<IMessageDoc[]> {
   return this.find({
     threadId: { $in: threadIds },
     deletedAt: null
@@ -159,7 +179,7 @@ MessageSchema.statics.findRecentMessages = function(
     .lean();
 };
 
-MessageSchema.statics.getUnreadCount = function(threadId: Types.ObjectId, userId: Types.ObjectId) {
+MessageSchema.statics.getUnreadCount = function(threadId: Types.ObjectId, userId: Types.ObjectId): Promise<number> {
   return this.countDocuments({
     threadId,
     senderId: { $ne: userId },
@@ -176,4 +196,4 @@ MessageSchema.pre('save', function(next) {
   next();
 });
 
-export const Message = model<IMessage>('Message', MessageSchema);
+export const Message = (mongoose.models.Message as IMessageModel) || mongoose.model<IMessageDoc, IMessageModel>('Message', MessageSchema);

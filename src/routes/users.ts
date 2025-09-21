@@ -1,4 +1,5 @@
 import express from 'express';
+import { Types } from 'mongoose';
 import { z } from 'zod';
 import { User } from '../models/User.js';
 import { requireAuth, optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
@@ -174,10 +175,20 @@ router.get('/:id', optionalAuth, async (req: AuthenticatedRequest, res) => {
 
     // Filter stats based on privacy settings
     if (user.settings?.showStats === 'private' && (!req.userId || req.userId !== id)) {
-      user.stats = undefined;
+      user.stats = {
+        convoysCreated: 0,
+        convoysJoined: 0,
+        totalMiles: 0,
+        friendsCount: 0
+      };
     } else if (user.settings?.showStats === 'friends' && (!req.userId || req.userId !== id)) {
       // TODO: Check if users are friends
-      user.stats = undefined;
+      user.stats = {
+        convoysCreated: 0,
+        convoysJoined: 0,
+        totalMiles: 0,
+        friendsCount: 0
+      };
     }
 
     res.json({
@@ -199,9 +210,18 @@ router.get('/by-username/:username', optionalAuth, async (req: AuthenticatedRequ
   try {
     const { username } = req.params;
     
-    const user = await User.findByUsername(username)
+    if (!username) {
+      return res.status(400).json({
+        error: {
+          code: 'MISSING_USERNAME',
+          message: 'Username parameter is required'
+        }
+      });
+    }
+    
+    const user = await User.findOne({ username: username.toLowerCase() })
       .select('username avatarUrl bio settings stats createdAt')
-      .lean();
+      .exec();
 
     if (!user) {
       return res.status(404).json({
@@ -224,10 +244,20 @@ router.get('/by-username/:username', optionalAuth, async (req: AuthenticatedRequ
 
     // Filter stats based on privacy settings
     if (user.settings?.showStats === 'private' && (!req.userId || req.userId !== user._id.toString())) {
-      user.stats = undefined;
+      user.stats = {
+        convoysCreated: 0,
+        convoysJoined: 0,
+        totalMiles: 0,
+        friendsCount: 0
+      };
     } else if (user.settings?.showStats === 'friends' && (!req.userId || req.userId !== user._id.toString())) {
       // TODO: Check if users are friends
-      user.stats = undefined;
+      user.stats = {
+        convoysCreated: 0,
+        convoysJoined: 0,
+        totalMiles: 0,
+        friendsCount: 0
+      };
     }
 
     res.json({
@@ -261,7 +291,7 @@ router.get('/search', requireAuth, async (req: AuthenticatedRequest, res) => {
     // Get current user's friends and blocked users to exclude from search
     const currentUser = await User.findById(req.userId).select('friends blocked').lean();
     const excludeIds = [
-      req.userId,
+      new Types.ObjectId(req.userId),
       ...(currentUser?.friends || []),
       ...(currentUser?.blocked || [])
     ];
