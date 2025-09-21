@@ -14,7 +14,9 @@ import threads from './routes/threads.js';
 import friends from './routes/friends.js';
 import devices from './routes/devicetokens.js';
 import users from './routes/users.js';
+import usersProtected from './routes/users.protected.js';
 import { requireAuth } from './middleware/auth.js';
+import { User } from './models/User.js';
 
 const app = express();
 
@@ -60,6 +62,60 @@ app.use('/threads', threads);
 app.use('/friends', friends);
 app.use('/devices', devices);
 app.use('/users', users);
+app.use('/users', usersProtected);
+
+// TEMP alias routes for legacy clients calling /me directly
+app.get('/me', requireAuth, async (req: any, res) => {
+  const user = await User.findById(req.userId).lean();
+  if (!user) return res.status(404).json({ error: 'NotFound' });
+  return res.json({
+    user: {
+      id: user._id.toString(),
+      email: user.email,
+      username: user.username,
+      displayName: user.displayName,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    }
+  });
+});
+
+// Accept POST /me as an alias for updating profile (username/displayName)
+// but internally do the same as PATCH /users/me.
+app.post('/me', requireAuth, express.json(), async (req: any, res) => {
+  const { username, displayName } = req.body || {};
+  const update: any = {};
+  if (typeof username === 'string') update.username = username.trim().toLowerCase();
+  if (typeof displayName === 'string') update.displayName = displayName.trim();
+
+  if (!Object.keys(update).length) {
+    return res.status(400).json({ error: 'InvalidInput' });
+  }
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { $set: update },
+      { new: true, runValidators: true }
+    ).lean();
+    if (!user) return res.status(404).json({ error: 'NotFound' });
+    return res.json({
+      user: {
+        id: user._id.toString(),
+        email: user.email,
+        username: user.username,
+        displayName: user.displayName,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      }
+    });
+  } catch (e: any) {
+    // handle duplicate username nicely
+    if (e?.code === 11000 && e?.keyPattern?.username) {
+      return res.status(409).json({ error: 'UsernameTaken' });
+    }
+    return res.status(500).json({ error: 'InternalServerError' });
+  }
+});
 
 app.use(errorHandler);
 
