@@ -7,14 +7,19 @@ import rateLimit from 'express-rate-limit';
 import { connectMongo } from './config/mongo.js';
 import { errorHandler } from './middleware/errors.js';
 
+import usersPublic from './routes/users.public.js';
+import auth from './routes/auth.js';
 import me from './routes/me.js';
 import threads from './routes/threads.js';
 import friends from './routes/friends.js';
 import devices from './routes/devicetokens.js';
 import users from './routes/users.js';
-import auth from './routes/auth.js';
+import requireAuth from './middleware/auth.js';
 
 const app = express();
+
+// Trust proxy for Render/Proxies: needed for correct req.ip
+app.set('trust proxy', 1);
 
 const allowed = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({
@@ -32,16 +37,29 @@ if (process.env.ENABLE_PINO_HTTP === 'true') {
   const pinoHttp = require('pino-http');
   app.use(pinoHttp());
 }
-app.use(rateLimit({ windowMs: 60_000, max: 120 }));
+const limiter = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip || 'unknown',
+});
+
+app.use(limiter);
 
 app.get('/healthz', (_req,res)=>res.status(200).json({ status: 'ok' }));
 
-app.use(auth);
-app.use(me);
-app.use(threads);
-app.use(friends);
-app.use(devices);
-app.use(users);
+// Public routes (no auth required)
+app.use(usersPublic);
+app.use('/auth', auth);
+
+// Protected routes (require auth)
+app.use(requireAuth);
+app.use('/me', me);
+app.use('/threads', threads);
+app.use('/friends', friends);
+app.use('/devices', devices);
+app.use('/users', users);
 
 app.use(errorHandler);
 

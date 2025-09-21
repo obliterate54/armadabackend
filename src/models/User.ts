@@ -8,7 +8,4 @@ const UserSchema = new Schema({
   photoURL: { type: String },
 }, { timestamps: true });
 
-UserSchema.index({ email: 1 });
-UserSchema.index({ username: 1 });
-
 export const User = model('User', UserSchema);
