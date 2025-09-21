@@ -14,7 +14,7 @@ import threads from './routes/threads.js';
 import friends from './routes/friends.js';
 import devices from './routes/devicetokens.js';
 import users from './routes/users.js';
-import requireAuth from './middleware/auth.js';
+import { requireAuth } from './middleware/auth.js';
 
 const app = express();
 
