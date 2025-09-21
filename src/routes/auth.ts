@@ -1,166 +1,261 @@
-import { Router } from 'express';
+import express from 'express';
 import { z } from 'zod';
-import bcrypt from 'bcryptjs';
-import { User } from '../models/User.js';
-import { signJwt } from '../utils/jwt.js';
+import { authService } from '../services/authService.js';
+import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
-const r = Router();
+const router = express.Router();
 
-// Register endpoint
-r.post('/auth/register', async (req, res) => {
+// Validation schemas
+const registerSchema = z.object({
+  email: z.string().email('Invalid email format'),
+  username: z.string()
+    .min(3, 'Username must be at least 3 characters')
+    .max(30, 'Username must be less than 30 characters')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Password must contain at least one lowercase letter, one uppercase letter, and one number')
+});
+
+const loginSchema = z.object({
+  emailOrUsername: z.string().min(1, 'Email or username is required'),
+  password: z.string().min(1, 'Password is required')
+});
+
+const refreshSchema = z.object({
+  refreshToken: z.string().min(1, 'Refresh token is required')
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Password must contain at least one lowercase letter, one uppercase letter, and one number')
+});
+
+const resetPasswordSchema = z.object({
+  email: z.string().email('Invalid email format')
+});
+
+// POST /auth/register
+router.post('/register', async (req, res) => {
   try {
-    const { email, password, username } = z.object({
-      email: z.string().email(),
-      password: z.string().min(6),
-      username: z.string().min(3).max(32).optional(),
-    }).parse(req.body);
-
-    // Check if user already exists
-    const existingUser = await User.findOne({ 
-      $or: [
-        { email: email.toLowerCase() },
-        ...(username ? [{ username: new RegExp(`^${username}$`, 'i') }] : [])
-      ]
-    });
-
-    if (existingUser) {
-      if (existingUser.email === email.toLowerCase()) {
-        return res.status(409).json({ error: 'EmailAlreadyExists' });
-      }
-      if (username && existingUser.username?.toLowerCase() === username.toLowerCase()) {
-        return res.status(409).json({ error: 'UsernameTaken' });
-      }
-    }
-
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 12);
-
-    // Generate username if not provided
-    let finalUsername = username;
-    if (!finalUsername) {
-      const local = email.split('@')[0]?.replace(/[^a-z0-9_]/gi, '').slice(0, 20) || '';
-      finalUsername = local || `user_${Date.now().toString(36)}`;
-      
-      // Ensure username is unique
-      let counter = 0;
-      while (await User.findOne({ username: new RegExp(`^${finalUsername}$`, 'i') })) {
-        finalUsername = `${local || 'user'}${counter}`;
-        counter++;
-      }
-    }
-
-    // Create user
-    const user = new User({
-      email: email.toLowerCase(),
-      passwordHash,
-      username: finalUsername,
-      displayName: finalUsername,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    await user.save();
-
-    // Generate JWT token
-    const token = signJwt({
-      userId: user._id.toString(),
-      email: user.email,
-    });
-
+    const { email, username, password } = registerSchema.parse(req.body);
+    
+    const result = await authService.register(email, username, password);
+    
     res.status(201).json({
-      token,
-      user: {
-        id: user._id.toString(),
-        email: user.email,
-        username: user.username,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
+      success: true,
+      data: result
     });
-  } catch (error) {
-    console.error('Registration error:', error);
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'InvalidInput', details: error.issues });
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid input data',
+          details: error.errors
+        }
+      });
     }
-    res.status(500).json({ error: 'InternalServerError' });
+
+    if (error.message === 'Email already registered' || error.message === 'Username already taken') {
+      return res.status(409).json({
+        error: {
+          code: 'CONFLICT',
+          message: error.message
+        }
+      });
+    }
+
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Registration failed'
+      }
+    });
   }
 });
 
-// Login endpoint
-r.post('/auth/login', async (req, res) => {
+// POST /auth/login
+router.post('/login', async (req, res) => {
   try {
-    const { email, password } = z.object({
-      email: z.string().email(),
-      password: z.string().min(1),
-    }).parse(req.body);
-
-    // Find user
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user) {
-      return res.status(401).json({ error: 'InvalidCredentials' });
-    }
-
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
-    if (!isValidPassword) {
-      return res.status(401).json({ error: 'InvalidCredentials' });
-    }
-
-    // Generate JWT token
-    const token = signJwt({
-      userId: user._id.toString(),
-      email: user.email,
-    });
-
+    const { emailOrUsername, password } = loginSchema.parse(req.body);
+    
+    const result = await authService.login(emailOrUsername, password);
+    
     res.json({
-      token,
-      user: {
-        id: user._id.toString(),
-        email: user.email,
-        username: user.username,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
+      success: true,
+      data: result
     });
-  } catch (error) {
-    console.error('Login error:', error);
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'InvalidInput', details: error.issues });
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid input data',
+          details: error.errors
+        }
+      });
     }
-    res.status(500).json({ error: 'InternalServerError' });
+
+    if (error.message === 'Invalid credentials') {
+      return res.status(401).json({
+        error: {
+          code: 'INVALID_CREDENTIALS',
+          message: 'Invalid email/username or password'
+        }
+      });
+    }
+
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Login failed'
+      }
+    });
   }
 });
 
-// Get current user endpoint
-r.get('/auth/me', async (req, res) => {
+// POST /auth/refresh
+router.post('/refresh', async (req, res) => {
   try {
-    const userId = (req as any).userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ error: 'UserNotFound' });
-    }
-
+    const { refreshToken } = refreshSchema.parse(req.body);
+    
+    const result = await authService.refreshToken(refreshToken);
+    
     res.json({
-      id: user._id.toString(),
-      email: user.email,
-      username: user.username,
-      displayName: user.displayName,
-      photoURL: user.photoURL,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
+      success: true,
+      data: result
     });
-  } catch (error) {
-    console.error('Get user error:', error);
-    res.status(500).json({ error: 'InternalServerError' });
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid input data',
+          details: error.errors
+        }
+      });
+    }
+
+    if (error.message === 'Invalid refresh token') {
+      return res.status(401).json({
+        error: {
+          code: 'INVALID_REFRESH_TOKEN',
+          message: 'Invalid or expired refresh token'
+        }
+      });
+    }
+
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Token refresh failed'
+      }
+    });
   }
 });
 
-export default r;
+// POST /auth/logout
+router.post('/logout', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    // For now, logout is handled client-side by discarding tokens
+    // In the future, we could implement token blacklisting
+    
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Logout failed'
+      }
+    });
+  }
+});
+
+// POST /auth/password/change
+router.post('/password/change', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+    
+    if (!req.userId) {
+      return res.status(401).json({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'User not authenticated'
+        }
+      });
+    }
+    
+    await authService.changePassword(req.userId, currentPassword, newPassword);
+    
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid input data',
+          details: error.errors
+        }
+      });
+    }
+
+    if (error.message === 'Current password is incorrect') {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_CURRENT_PASSWORD',
+          message: 'Current password is incorrect'
+        }
+      });
+    }
+
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Password change failed'
+      }
+    });
+  }
+});
+
+// POST /auth/password/reset
+router.post('/password/reset', async (req, res) => {
+  try {
+    const { email } = resetPasswordSchema.parse(req.body);
+    
+    await authService.resetPassword(email);
+    
+    // Always return success to prevent email enumeration
+    res.json({
+      success: true,
+      message: 'If the email exists, a password reset link has been sent'
+    });
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid input data',
+          details: error.errors
+        }
+      });
+    }
+
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Password reset request failed'
+      }
+    });
+  }
+});
+
+export default router;

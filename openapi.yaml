@@ -1,0 +1,1401 @@
+openapi: 3.0.3
+info:
+  title: Armada Convoy API
+  description: REST API for the Armada convoy and social app
+  version: 1.0.0
+  contact:
+    name: Armada Team
+    email: support@armada.app
+servers:
+  - url: https://convoy-api.onrender.com
+    description: Production server
+  - url: http://localhost:8080
+    description: Development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns the health status of the API
+      security: []
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /ready:
+    get:
+      summary: Readiness check
+      description: Returns the readiness status of the API
+      security: []
+      responses:
+        '200':
+          description: API is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+
+  /auth/register:
+    post:
+      summary: Register a new user
+      description: Create a new user account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - username
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 30
+                  pattern: '^[a-zA-Z0-9_]+$'
+                  example: johndoe
+                password:
+                  type: string
+                  minLength: 8
+                  example: SecurePassword123
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+                      accessToken:
+                        type: string
+                      refreshToken:
+                        type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/login:
+    post:
+      summary: Login user
+      description: Authenticate user and return tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - emailOrUsername
+                - password
+              properties:
+                emailOrUsername:
+                  type: string
+                  example: user@example.com
+                password:
+                  type: string
+                  example: SecurePassword123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+                      accessToken:
+                        type: string
+                      refreshToken:
+                        type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      description: Get new access token using refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                      refreshToken:
+                        type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      summary: Logout user
+      description: Logout user and invalidate tokens
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Logged out successfully
+
+  /me:
+    get:
+      summary: Get current user
+      description: Get the current authenticated user's profile
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    patch:
+      summary: Update current user
+      description: Update the current user's profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 30
+                  pattern: '^[a-zA-Z0-9_]+$'
+                bio:
+                  type: string
+                  maxLength: 500
+                avatarUrl:
+                  type: string
+                  format: uri
+                settings:
+                  $ref: '#/components/schemas/UserSettings'
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /users/search:
+    get:
+      summary: Search users
+      description: Search for users by username or email
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: limit
+          in: query
+          description: Number of results to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: offset
+          in: query
+          description: Number of results to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      users:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+  /users/{id}:
+    get:
+      summary: Get user by ID
+      description: Get user profile by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/by-username/{username}:
+    get:
+      summary: Get user by username
+      description: Get user profile by username
+      parameters:
+        - name: username
+          in: path
+          required: true
+          description: Username
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /friends/requests:
+    get:
+      summary: Get friend requests
+      description: Get pending and sent friend requests
+      responses:
+        '200':
+          description: Friend requests retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      pending:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FriendRequest'
+                      sent:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FriendRequest'
+
+  /friends/request:
+    post:
+      summary: Send friend request
+      description: Send a friend request to another user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - to
+              properties:
+                to:
+                  type: string
+                  description: Username or user ID
+                  example: johndoe
+      responses:
+        '201':
+          description: Friend request sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/FriendRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /friends/respond:
+    post:
+      summary: Respond to friend request
+      description: Accept, decline, or block a friend request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - requestId
+                - action
+              properties:
+                requestId:
+                  type: string
+                  description: Friend request ID
+                action:
+                  type: string
+                  enum: [accept, decline, block]
+                  description: Response action
+      responses:
+        '200':
+          description: Response processed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/FriendRequest'
+
+  /friends/list:
+    get:
+      summary: Get friends list
+      description: Get the current user's friends list
+      responses:
+        '200':
+          description: Friends list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      friends:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+                      count:
+                        type: integer
+
+  /threads:
+    get:
+      summary: Get user threads
+      description: Get threads for the current user
+      parameters:
+        - name: limit
+          in: query
+          description: Number of threads to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of threads to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Threads retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      threads:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Thread'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+    post:
+      summary: Create thread
+      description: Create a new chat thread
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - participants
+              properties:
+                participants:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 2
+                  maxItems: 50
+                  description: Array of participant user IDs
+                title:
+                  type: string
+                  maxLength: 100
+                  description: Thread title (for group chats)
+                isGroup:
+                  type: boolean
+                  default: false
+                  description: Whether this is a group thread
+      responses:
+        '201':
+          description: Thread created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Thread'
+
+  /threads/{id}/messages:
+    get:
+      summary: Get thread messages
+      description: Get messages for a specific thread
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Thread ID
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          description: Cursor for pagination
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Number of messages to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Messages retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      messages:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Message'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+    post:
+      summary: Send message
+      description: Send a message to a thread
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Thread ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  maxLength: 2000
+                  description: Message text
+                media:
+                  $ref: '#/components/schemas/MessageMedia'
+      responses:
+        '201':
+          description: Message sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Message'
+
+  /convoys:
+    get:
+      summary: Get convoys
+      description: Get list of convoys
+      parameters:
+        - name: limit
+          in: query
+          description: Number of convoys to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of convoys to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: lat
+          in: query
+          description: Latitude for location-based search
+          schema:
+            type: number
+            format: float
+        - name: lng
+          in: query
+          description: Longitude for location-based search
+          schema:
+            type: number
+            format: float
+        - name: radius
+          in: query
+          description: Search radius in kilometers
+          schema:
+            type: number
+            default: 50
+      responses:
+        '200':
+          description: Convoys retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      convoys:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Convoy'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+    post:
+      summary: Create convoy
+      description: Create a new convoy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentCenter
+              properties:
+                title:
+                  type: string
+                  maxLength: 100
+                description:
+                  type: string
+                  maxLength: 500
+                visibility:
+                  type: string
+                  enum: [public, invite, private]
+                  default: public
+                maxMembers:
+                  type: integer
+                  minimum: 2
+                  maximum: 50
+                  default: 20
+                route:
+                  $ref: '#/components/schemas/ConvoyRoute'
+                currentCenter:
+                  $ref: '#/components/schemas/ConvoyLocation'
+      responses:
+        '201':
+          description: Convoy created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Convoy'
+
+  /convoys/{id}/join:
+    post:
+      summary: Join convoy
+      description: Join an existing convoy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Convoy ID
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                joinCode:
+                  type: string
+                  description: Join code for invite-only convoys
+      responses:
+        '200':
+          description: Joined convoy successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Successfully joined convoy
+
+  /convoys/{id}/location:
+    post:
+      summary: Update convoy location
+      description: Update the convoy's current location
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Convoy ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConvoyLocation'
+      responses:
+        '200':
+          description: Location updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Location updated successfully
+
+  /media/upload:
+    post:
+      summary: Upload media file
+      description: Upload a media file (image or video)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Media file to upload
+                type:
+                  type: string
+                  enum: [avatar, message, convoy]
+                  default: message
+                  description: Type of upload
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/UploadedFile'
+
+  /notifications:
+    get:
+      summary: Get notifications
+      description: Get user notifications
+      parameters:
+        - name: limit
+          in: query
+          description: Number of notifications to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of notifications to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: unreadOnly
+          in: query
+          description: Return only unread notifications
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Notifications retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      notifications:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+                      pagination:
+                        $ref: '#/components/schemas/Pagination'
+
+  /notifications/unread-count:
+    get:
+      summary: Get unread notification count
+      description: Get the count of unread notifications
+      responses:
+        '200':
+          description: Unread count retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      unreadCount:
+                        type: integer
+                        example: 5
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        username:
+          type: string
+          example: johndoe
+        avatarUrl:
+          type: string
+          format: uri
+          example: https://example.com/avatar.jpg
+        bio:
+          type: string
+          example: Adventure enthusiast and convoy leader
+        settings:
+          $ref: '#/components/schemas/UserSettings'
+        stats:
+          $ref: '#/components/schemas/UserStats'
+        friends:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserSettings:
+      type: object
+      properties:
+        showConvoys:
+          type: string
+          enum: [everyone, friends, private]
+          example: friends
+        showStats:
+          type: string
+          enum: [everyone, friends, private]
+          example: friends
+        showProfile:
+          type: string
+          enum: [everyone, friends, private]
+          example: everyone
+        notifications:
+          type: object
+          properties:
+            convoyInvites:
+              type: boolean
+              example: true
+            friendRequests:
+              type: boolean
+              example: true
+            messages:
+              type: boolean
+              example: true
+            achievements:
+              type: boolean
+              example: true
+
+    UserStats:
+      type: object
+      properties:
+        convoysCreated:
+          type: integer
+          example: 12
+        convoysJoined:
+          type: integer
+          example: 45
+        totalMiles:
+          type: number
+          example: 1250.5
+        friendsCount:
+          type: integer
+          example: 23
+
+    FriendRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        from:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        to:
+          type: string
+          example: 507f1f77bcf86cd799439012
+        status:
+          type: string
+          enum: [pending, accepted, declined, blocked]
+          example: pending
+        message:
+          type: string
+          example: Hey, let's be friends!
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Thread:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        lastMessageAt:
+          type: string
+          format: date-time
+        unreadCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        isGroup:
+          type: boolean
+          example: false
+        title:
+          type: string
+          example: Road Trip Planning
+        convoyId:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        threadId:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        senderId:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        text:
+          type: string
+          example: Let's meet at the gas station at 9 AM
+        media:
+          $ref: '#/components/schemas/MessageMedia'
+        reactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageReaction'
+        editedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MessageMedia:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          example: https://example.com/media.jpg
+        type:
+          type: string
+          enum: [image, video, audio]
+          example: image
+        width:
+          type: integer
+          example: 1920
+        height:
+          type: integer
+          example: 1080
+        duration:
+          type: number
+          example: 120.5
+        filename:
+          type: string
+          example: photo.jpg
+        size:
+          type: integer
+          example: 2048576
+
+    MessageReaction:
+      type: object
+      properties:
+        by:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        emoji:
+          type: string
+          example: 👍
+        createdAt:
+          type: string
+          format: date-time
+
+    Convoy:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        ownerId:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        isLive:
+          type: boolean
+          example: true
+        route:
+          $ref: '#/components/schemas/ConvoyRoute'
+        currentCenter:
+          $ref: '#/components/schemas/ConvoyLocation'
+        visibility:
+          type: string
+          enum: [public, invite, private]
+          example: public
+        joinCode:
+          type: string
+          example: ABC123
+        title:
+          type: string
+          example: Weekend Road Trip
+        description:
+          type: string
+          example: A scenic drive through the mountains
+        maxMembers:
+          type: integer
+          example: 20
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ConvoyRoute:
+      type: object
+      properties:
+        waypoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConvoyWaypoint'
+        polyline:
+          type: string
+          example: encoded_polyline_string
+        distance:
+          type: number
+          example: 150.5
+        duration:
+          type: number
+          example: 7200
+
+    ConvoyWaypoint:
+      type: object
+      properties:
+        lat:
+          type: number
+          format: float
+          example: 37.7749
+        lng:
+          type: number
+          format: float
+          example: -122.4194
+        name:
+          type: string
+          example: Golden Gate Bridge
+        order:
+          type: integer
+          example: 1
+
+    ConvoyLocation:
+      type: object
+      properties:
+        lat:
+          type: number
+          format: float
+          example: 37.7749
+        lng:
+          type: number
+          format: float
+          example: -122.4194
+        heading:
+          type: number
+          format: float
+          example: 45.0
+        speed:
+          type: number
+          format: float
+          example: 65.5
+        accuracy:
+          type: number
+          format: float
+          example: 10.0
+        updatedAt:
+          type: string
+          format: date-time
+
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        userId:
+          type: string
+          example: 507f1f77bcf86cd799439011
+        type:
+          type: string
+          enum: [friend_request, friend_accepted, convoy_invite, convoy_join, convoy_leave, message, achievement, system]
+          example: friend_request
+        payload:
+          type: object
+          additionalProperties: true
+        readAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UploadedFile:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          example: https://storage.example.com/uploads/file.jpg
+        type:
+          type: string
+          enum: [image, video, audio]
+          example: image
+        width:
+          type: integer
+          example: 1920
+        height:
+          type: integer
+          example: 1080
+        duration:
+          type: number
+          example: 120.5
+        filename:
+          type: string
+          example: photo.jpg
+        size:
+          type: integer
+          example: 2048576
+        mimeType:
+          type: string
+          example: image/jpeg
+
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+          example: 20
+        offset:
+          type: integer
+          example: 0
+        total:
+          type: integer
+          example: 100
+        hasMore:
+          type: boolean
+          example: true
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Invalid input data
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

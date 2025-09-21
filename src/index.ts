@@ -4,141 +4,179 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
 import { connectMongo } from './config/mongo.js';
 import { errorHandler } from './middleware/errors.js';
 
-import usersPublic from './routes/users.public.js';
+// Routes
 import auth from './routes/auth.js';
 import me from './routes/me.js';
-import threads from './routes/threads.js';
-import friends from './routes/friends.js';
-import devices from './routes/devicetokens.js';
 import users from './routes/users.js';
-import usersProtected from './routes/users.protected.js';
-import { requireAuth } from './middleware/auth.js';
-import { User } from './models/User.js';
+import friends from './routes/friends.js';
+import threads from './routes/threads.js';
+import convoys from './routes/convoys.js';
+import media from './routes/media.js';
+import notifications from './routes/notifications.js';
+import devices from './routes/devicetokens.js';
 
 const app = express();
+const server = createServer(app);
 
-// Trust proxy for Render/Proxies: needed for correct req.ip
-app.set('trust proxy', 1);
-
-const allowed = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+// CORS configuration
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowed.length === 0 || allowed.includes(origin)) return cb(null, true);
+    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return cb(null, true);
+    }
     return cb(new Error('CORS blocked'), false);
-  }
+  },
+  credentials: true // Allow cookies for refresh tokens
 }));
+
 app.use(helmet());
 app.use(compression());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Logging
 if (process.env.ENABLE_PINO_HTTP === 'true') {
-  // Lazy import to avoid dependency issues if optional
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const pinoHttp = require('pino-http');
   app.use(pinoHttp());
 }
-const limiter = rateLimit({
-  windowMs: 60_000,
+
+// Rate limiting
+app.use(rateLimit({ 
+  windowMs: 60_000, 
   max: 120,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => req.ip || 'unknown',
+  message: {
+    error: {
+      code: 'RATE_LIMIT_EXCEEDED',
+      message: 'Too many requests, please try again later'
+    }
+  }
+}));
+
+// Health checks
+app.get('/health', (_req, res) => res.status(200).json({ status: 'ok' }));
+app.get('/ready', (_req, res) => res.status(200).json({ status: 'ready' }));
+
+// Routes
+app.use('/auth', auth);
+app.use('/me', me);
+app.use('/users', users);
+app.use('/friends', friends);
+app.use('/threads', threads);
+app.use('/convoys', convoys);
+app.use('/media', media);
+app.use('/notifications', notifications);
+app.use('/devices', devices);
+
+// Socket.IO setup
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+    credentials: true
+  }
 });
 
-app.use(limiter);
+// Socket.IO namespaces
+const presenceNamespace = io.of('/presence');
+const chatNamespace = io.of('/chat');
 
-app.get('/healthz', (_req,res)=>res.status(200).json({ status: 'ok' }));
-
-// Public routes (no auth required)
-app.use(usersPublic);
-app.use('/auth', auth);
-
-// Protected routes (require auth)
-app.use(requireAuth);
-app.use('/me', me);
-app.use('/threads', threads);
-app.use('/friends', friends);
-app.use('/devices', devices);
-app.use('/users', users);
-app.use('/users', usersProtected);
-
-// TEMP alias routes for legacy clients calling /me directly
-app.get('/me', requireAuth, async (req: any, res) => {
-  const user = await User.findById(req.userId).lean();
-  if (!user) return res.status(404).json({ error: 'NotFound' });
-  return res.json({
-    user: {
-      id: user._id.toString(),
-      email: user.email,
-      username: user.username,
-      displayName: user.displayName,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
+// Socket.IO middleware for authentication
+const socketAuthMiddleware = async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    if (!token) {
+      return next(new Error('Authentication error'));
     }
+
+    // TODO: Verify JWT token
+    // const payload = await authService.verifyAccessToken(token);
+    // socket.userId = payload.userId;
+    
+    next();
+  } catch (error) {
+    next(new Error('Authentication error'));
+  }
+};
+
+presenceNamespace.use(socketAuthMiddleware);
+chatNamespace.use(socketAuthMiddleware);
+
+// Presence namespace events
+presenceNamespace.on('connection', (socket) => {
+  console.log(`User connected to presence: ${socket.id}`);
+  
+  socket.on('location:update', (data) => {
+    // Broadcast location to convoy members
+    socket.broadcast.emit('location:update', {
+      userId: socket.userId,
+      ...data
+    });
+  });
+
+  socket.on('convoy:join', (convoyId) => {
+    socket.join(`convoy:${convoyId}`);
+  });
+
+  socket.on('convoy:leave', (convoyId) => {
+    socket.leave(`convoy:${convoyId}`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`User disconnected from presence: ${socket.id}`);
   });
 });
 
-// Accept POST /me as an alias for updating profile (username/displayName)
-// but internally do the same as PATCH /users/me.
-app.post('/me', requireAuth, express.json(), async (req: any, res) => {
-  const { username, displayName } = req.body || {};
-  const update: any = {};
-  if (typeof username === 'string') update.username = username.trim().toLowerCase();
-  if (typeof displayName === 'string') update.displayName = displayName.trim();
+// Chat namespace events
+chatNamespace.on('connection', (socket) => {
+  console.log(`User connected to chat: ${socket.id}`);
+  
+  socket.on('thread:join', (threadId) => {
+    socket.join(`thread:${threadId}`);
+  });
 
-  if (!Object.keys(update).length) {
-    return res.status(400).json({ error: 'InvalidInput' });
-  }
-  try {
-    const user = await User.findByIdAndUpdate(
-      req.userId,
-      { $set: update },
-      { new: true, runValidators: true }
-    ).lean();
-    if (!user) return res.status(404).json({ error: 'NotFound' });
-    return res.json({
-      user: {
-        id: user._id.toString(),
-        email: user.email,
-        username: user.username,
-        displayName: user.displayName,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      }
+  socket.on('thread:leave', (threadId) => {
+    socket.leave(`thread:${threadId}`);
+  });
+
+  socket.on('thread:typing', (data) => {
+    socket.to(`thread:${data.threadId}`).emit('thread:typing', {
+      userId: socket.userId,
+      ...data
     });
-  } catch (e: any) {
-    // handle duplicate username nicely
-    if (e?.code === 11000 && e?.keyPattern?.username) {
-      return res.status(409).json({ error: 'UsernameTaken' });
-    }
-    return res.status(500).json({ error: 'InternalServerError' });
-  }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`User disconnected from chat: ${socket.id}`);
+  });
 });
 
+// Error handling middleware
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT || 8080);
 
-// make sure Mongo connects before starting
+// Start server
 connectMongo(process.env.MONGO_URI || '')
   .then(() => {
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`[mongo] connected`);
-      console.log(`api on :${PORT}`);
+      console.log(`[api] server running on port ${PORT}`);
+      console.log(`[socket] io server ready`);
     });
   })
   .catch((err) => {
     console.error("Mongo connection failed", err);
-    // optional: still start server even if Mongo fails
-    app.listen(PORT, () => {
-      console.log(`api running without Mongo on :${PORT}`);
+    // Still start server even if Mongo fails
+    server.listen(PORT, () => {
+      console.log(`[api] server running on port ${PORT} (without Mongo)`);
     });
   });
-
-// error handling middleware should go after routes
-app.use(errorHandler);
 
 // Minimal OpenAPI description
 app.get('/openapi.json', (_req, res) => {
@@ -147,9 +185,6 @@ app.get('/openapi.json', (_req, res) => {
     info: { title: 'Convoy API', version: '1.0.0' },
     paths: {
       '/healthz': { get: { responses: { '200': { description: 'ok' } } } },
-      '/auth/register': { post: { responses: { '201': { description: 'created' }, '409': { description: 'email/username taken' } } } },
-      '/auth/login': { post: { responses: { '200': { description: 'success' }, '401': { description: 'invalid credentials' } } } },
-      '/auth/me': { get: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'user' } } } },
       '/me': {
         get: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'me' } } },
         post: { security: [{ bearerAuth: [] }], responses: { '200': { description: 'updated' }, '409': { description: 'username taken' } } }

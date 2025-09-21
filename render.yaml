@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: convoy-api
+    env: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        fromDatabase:
+          name: convoy-mongodb
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRY
+        value: 15m
+      - key: JWT_REFRESH_EXPIRY
+        value: 7d
+      - key: ALLOWED_ORIGINS
+        value: https://your-expo-app.com,http://localhost:8081,http://localhost:19006
+      - key: ENABLE_PINO_HTTP
+        value: true
+      - key: S3_BUCKET
+        value: convoy-media
+      - key: S3_REGION
+        value: us-east-1
+      - key: S3_KEY
+        fromSecret:
+          name: s3-access-key
+      - key: S3_SECRET
+        fromSecret:
+          name: s3-secret-key
+      - key: APP_ORIGIN
+        value: https://convoy-api.onrender.com
+
+databases:
+  - name: convoy-mongodb
+    plan: starter
